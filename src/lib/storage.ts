@@ -1,32 +1,70 @@
+import { createClient } from '@/lib/supabase/client'
 import type { BidAnnouncement, CompanyInfo } from '@/types/bid'
 
-const BIDS_KEY = 'bid-analyzer:bids'
-const COMPANY_KEY = 'bid-analyzer:company'
+export async function loadBids(): Promise<BidAnnouncement[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('bids')
+    .select('*')
+    .order('deadline', { ascending: true, nullsFirst: false })
+  if (error) { console.error(error); return [] }
+  return (data ?? []).map(dbRowToBid)
+}
 
-export function loadBids(): BidAnnouncement[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = localStorage.getItem(BIDS_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
+export async function saveBid(bid: BidAnnouncement): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('bids').upsert(bidToDbRow(bid))
+  if (error) console.error(error)
+}
+
+export async function deleteBid(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('bids').delete().eq('id', id)
+  if (error) console.error(error)
+}
+
+export async function loadCompanyInfo(): Promise<CompanyInfo> {
+  const supabase = createClient()
+  const { data, error } = await supabase.from('company_info').select('*').eq('id', 1).single()
+  if (error) { console.error(error); return { name: '', bizNumber: '' } }
+  return { name: data.name, bizNumber: data.biz_number }
+}
+
+export async function saveCompanyInfo(info: CompanyInfo): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('company_info')
+    .update({ name: info.name, biz_number: info.bizNumber })
+    .eq('id', 1)
+  if (error) console.error(error)
+}
+
+function bidToDbRow(bid: BidAnnouncement) {
+  return {
+    id: bid.id,
+    file_name: bid.fileName,
+    uploaded_at: bid.uploadedAt,
+    title: bid.title,
+    organization: bid.organization,
+    estimated_amount: bid.estimatedAmount,
+    service_period: bid.servicePeriod,
+    deadline: bid.deadline,
+    qualification: bid.qualification,
+    checklist: bid.checklist,
   }
 }
 
-export function saveBids(bids: BidAnnouncement[]): void {
-  localStorage.setItem(BIDS_KEY, JSON.stringify(bids))
-}
-
-export function loadCompanyInfo(): CompanyInfo {
-  if (typeof window === 'undefined') return { name: '', bizNumber: '' }
-  try {
-    const raw = localStorage.getItem(COMPANY_KEY)
-    return raw ? JSON.parse(raw) : { name: '', bizNumber: '' }
-  } catch {
-    return { name: '', bizNumber: '' }
+function dbRowToBid(row: Record<string, unknown>): BidAnnouncement {
+  return {
+    id: row.id as string,
+    fileName: row.file_name as string,
+    uploadedAt: row.uploaded_at as string,
+    title: row.title as string | null,
+    organization: row.organization as string | null,
+    estimatedAmount: row.estimated_amount as string | null,
+    servicePeriod: row.service_period as string | null,
+    deadline: row.deadline as string | null,
+    qualification: row.qualification as string | null,
+    checklist: row.checklist as BidAnnouncement['checklist'],
   }
-}
-
-export function saveCompanyInfo(info: CompanyInfo): void {
-  localStorage.setItem(COMPANY_KEY, JSON.stringify(info))
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { BidAnnouncement, ChecklistItem } from '@/types/bid'
-import { loadBids, saveBids } from '@/lib/storage'
+import { loadBids, saveBid, deleteBid as deleteBidFromDb } from '@/lib/storage'
 import { extractTextFromPdf } from '@/lib/parsePdf'
 import { extractFields } from '@/lib/extractFields'
 import { WarningBanner } from '@/components/WarningBanner'
@@ -15,12 +15,9 @@ export default function Home() {
   const [selectedBidId, setSelectedBidId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  useEffect(() => { setBids(loadBids()) }, [])
-
-  const updateBids = (next: BidAnnouncement[]) => {
-    setBids(next)
-    saveBids(next)
-  }
+  useEffect(() => {
+    loadBids().then(setBids)
+  }, [])
 
   const handleUpload = async (file: File) => {
     setLoading(true)
@@ -28,17 +25,30 @@ export default function Home() {
       const text = await extractTextFromPdf(file)
       const fields = extractFields(text, file.name)
       const bid: BidAnnouncement = { id: crypto.randomUUID(), uploadedAt: new Date().toISOString(), ...fields }
-      updateBids([...bids, bid])
+      await saveBid(bid)
+      setBids(prev => [...prev, bid].sort((a, b) => {
+        if (!a.deadline) return 1
+        if (!b.deadline) return -1
+        return a.deadline.localeCompare(b.deadline)
+      }))
       setSelectedBidId(bid.id)
     } finally {
       setLoading(false)
     }
   }
 
-  const deleteBid = (id: string) => updateBids(bids.filter(b => b.id !== id))
+  const handleDelete = async (id: string) => {
+    await deleteBidFromDb(id)
+    setBids(prev => prev.filter(b => b.id !== id))
+    setSelectedBidId(null)
+  }
 
-  const updateChecklist = (bidId: string, checklist: ChecklistItem[]) =>
-    updateBids(bids.map(b => b.id === bidId ? { ...b, checklist } : b))
+  const updateChecklist = async (bidId: string, checklist: ChecklistItem[]) => {
+    const updated = bids.map(b => b.id === bidId ? { ...b, checklist } : b)
+    setBids(updated)
+    const bid = updated.find(b => b.id === bidId)
+    if (bid) await saveBid(bid)
+  }
 
   const sortedBids = [...bids].sort((a, b) => {
     if (!a.deadline) return 1
@@ -97,7 +107,7 @@ export default function Home() {
             <BidDetailPanel
               bid={selectedBid}
               onUpdateChecklist={cl => updateChecklist(selectedBid.id, cl)}
-              onDelete={() => { deleteBid(selectedBid.id); setSelectedBidId(null) }}
+              onDelete={() => handleDelete(selectedBid.id)}
             />
           ) : (
             <UploadZone onUpload={handleUpload} loading={loading} />
